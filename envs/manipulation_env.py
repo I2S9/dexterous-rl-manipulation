@@ -30,6 +30,7 @@ class DexterousManipulationEnv(gym.Env):
         render_mode: Optional[str] = None,
         reward_type: str = "sparse",
         reward_shaping: Optional[Any] = None,
+        curriculum_config: Optional[Any] = None,
     ):
         """
         Initialize the dexterous manipulation environment.
@@ -42,6 +43,7 @@ class DexterousManipulationEnv(gym.Env):
             render_mode: Rendering mode, one of [None, "human", "rgb_array"]
             reward_type: Type of reward ("sparse" or "dense")
             reward_shaping: Optional reward shaping object (if None, created based on reward_type)
+            curriculum_config: Optional curriculum configuration (if None, uses defaults)
         """
         super().__init__()
         
@@ -51,6 +53,13 @@ class DexterousManipulationEnv(gym.Env):
         self.max_episode_steps = max_episode_steps
         self.render_mode = render_mode
         self.reward_type = reward_type
+        
+        # Initialize curriculum configuration
+        if curriculum_config is None:
+            from experiments import CurriculumConfig
+            self.curriculum_config = CurriculumConfig()
+        else:
+            self.curriculum_config = curriculum_config
         
         # Initialize reward shaping
         if reward_shaping is not None:
@@ -65,6 +74,11 @@ class DexterousManipulationEnv(gym.Env):
         
         # Store finger tips for reward computation
         self.finger_tips = None
+        
+        # Curriculum variables (set during reset)
+        self.object_size = None
+        self.object_mass = None
+        self.friction_coefficient = None
         
         # Action space: continuous control for each joint
         # Actions are in range [-1, 1], representing normalized joint velocities
@@ -104,6 +118,9 @@ class DexterousManipulationEnv(gym.Env):
         # Workspace bounds (in meters)
         self.workspace_bounds = np.array([[-0.2, 0.2], [-0.2, 0.2], [0.0, 0.3]])
         
+        # Hand base position (center of workspace)
+        self.hand_base_position = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        
     def reset(
         self,
         seed: Optional[int] = None,
@@ -130,13 +147,16 @@ class DexterousManipulationEnv(gym.Env):
         # Reset joint velocities to zero
         self.joint_velocities = np.zeros(self.num_joints, dtype=np.float32)
         
-        # Reset object position
+        # Sample curriculum variables
+        self.object_size = self.curriculum_config.get_object_size(self.np_random)
+        self.object_mass = self.curriculum_config.get_object_mass(self.np_random)
+        self.friction_coefficient = self.curriculum_config.get_friction_coefficient(self.np_random)
+        
+        # Reset object position using curriculum spawn configuration
         if self.object_position is None:
-            # Random object position within workspace
-            self.object_position = self.np_random.uniform(
-                low=self.workspace_bounds[:, 0],
-                high=self.workspace_bounds[:, 1]
-            ).astype(np.float32)
+            # Use curriculum spawn position
+            spawn_pos = self.curriculum_config.get_spawn_position(self.np_random)
+            self.object_position = np.array(spawn_pos, dtype=np.float32)
         else:
             self.object_position = np.array(self.object_position, dtype=np.float32)
         
@@ -186,9 +206,19 @@ class DexterousManipulationEnv(gym.Env):
         # Clip joint positions to reasonable range
         self.joint_positions = np.clip(self.joint_positions, -1.0, 1.0)
         
-        # Simple object dynamics (object falls if not grasped)
-        gravity = np.array([0.0, 0.0, -9.81 * dt])
+        # Object dynamics (affected by mass and friction)
+        # Gravity force depends on mass
+        gravity_accel = 9.81  # m/s^2
+        gravity = np.array([0.0, 0.0, -gravity_accel * dt])
+        
+        # Apply friction damping (proportional to friction coefficient)
+        friction_damping = 1.0 - (self.friction_coefficient * 0.1 * dt)
+        self.object_velocity *= friction_damping
+        
+        # Apply gravity
         self.object_velocity += gravity
+        
+        # Update position
         self.object_position += self.object_velocity * dt
         
         # Constrain object to workspace bounds
@@ -239,6 +269,11 @@ class DexterousManipulationEnv(gym.Env):
             "step_count": self.step_count,
             "object_position": self.object_position.copy(),
             "num_contacts": int(np.sum(self.contacts > 0.5)),
+            "curriculum": {
+                "object_size": float(self.object_size),
+                "object_mass": float(self.object_mass),
+                "friction_coefficient": float(self.friction_coefficient),
+            },
         }
         
         # Add reward components if available
@@ -252,9 +287,10 @@ class DexterousManipulationEnv(gym.Env):
         Update contact information between fingers and object.
         
         Simplified contact model: contact exists if finger tip is within
-        a threshold distance of the object.
+        a threshold distance of the object. Threshold depends on object size.
         """
-        contact_threshold = 0.05  # 5cm
+        # Contact threshold scales with object size
+        contact_threshold = self.object_size * 1.5  # 1.5x object radius
         
         # Simplified finger tip positions (based on joint positions)
         # In a real simulation, this would use forward kinematics

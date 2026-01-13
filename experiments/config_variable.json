@@ -1,0 +1,13 @@
+{
+  "object_size": 0.05,
+  "object_size_range": [0.03, 0.07],
+  "object_mass": 0.1,
+  "object_mass_range": [0.05, 0.15],
+  "friction_coefficient": 0.5,
+  "friction_range": [0.3, 0.7],
+  "spawn_distance": 0.15,
+  "spawn_distance_range": [0.10, 0.20],
+  "spawn_x_range": [-0.1, 0.1],
+  "spawn_y_range": [-0.1, 0.1],
+  "spawn_z_range": [0.05, 0.2]
+}
