@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Callable
 from envs import DexterousManipulationEnv
 from experiments.config import CurriculumConfig
 from evaluation.heldout_objects import HeldOutObjectSet
+from evaluation.metrics import EvaluationMetrics, format_metrics_report
 
 
 class Evaluator:
@@ -97,6 +98,7 @@ class Evaluator:
         episode_reward = 0.0
         episode_steps = 0
         success = False
+        contact_history = []  # Track contact history for failure analysis
         
         for step in range(self.max_episode_steps):
             action = self.policy.select_action(obs)
@@ -105,9 +107,16 @@ class Evaluator:
             episode_reward += reward
             episode_steps += 1
             
+            # Track contacts for failure analysis
+            num_contacts = info.get("num_contacts", 0)
+            contact_history.append([1.0 if i < num_contacts else 0.0 for i in range(5)])  # 5 fingers
+            
             if terminated or truncated:
                 success = terminated
                 break
+        
+        final_info = info
+        final_contacts = final_info.get("num_contacts", 0)
         
         env.close()
         
@@ -115,10 +124,12 @@ class Evaluator:
             "episode_reward": float(episode_reward),
             "episode_steps": int(episode_steps),
             "success": bool(success),
-            "num_contacts": int(info.get("num_contacts", 0)),
-            "object_size": float(info["curriculum"]["object_size"]),
-            "object_mass": float(info["curriculum"]["object_mass"]),
-            "friction_coefficient": float(info["curriculum"]["friction_coefficient"]),
+            "num_contacts": int(final_info.get("num_contacts", 0)),
+            "final_contacts": int(final_contacts),
+            "contact_history": contact_history,
+            "object_size": float(final_info["curriculum"]["object_size"]),
+            "object_mass": float(final_info["curriculum"]["object_mass"]),
+            "friction_coefficient": float(final_info["curriculum"]["friction_coefficient"]),
         }
     
     def evaluate_heldout_set(
@@ -174,20 +185,33 @@ class Evaluator:
                 "success_rate": float(np.mean([1.0 if r["success"] else 0.0 for r in obj_results])),
             }
         
-        # Overall statistics
+        # Compute metrics using EvaluationMetrics
+        metrics_calculator = EvaluationMetrics(success_threshold=3)
+        aggregate_metrics = metrics_calculator.compute_aggregate_metrics(
+            all_results, 
+            max_steps=self.max_episode_steps
+        )
+        per_object_metrics = metrics_calculator.compute_per_object_metrics(
+            object_results,
+            max_steps=self.max_episode_steps
+        )
+        
+        # Overall statistics (legacy format for compatibility)
         overall_stats = {
             "num_objects": len(self.heldout_set.heldout_objects),
             "total_episodes": len(all_results),
-            "overall_success_rate": float(np.mean([1.0 if r["success"] else 0.0 for r in all_results])),
+            "overall_success_rate": aggregate_metrics["grasp_success_rate"],
             "mean_reward": float(np.mean([r["episode_reward"] for r in all_results])),
             "std_reward": float(np.std([r["episode_reward"] for r in all_results])),
-            "mean_steps": float(np.mean([r["episode_steps"] for r in all_results])),
+            "mean_steps": aggregate_metrics["mean_episode_length"],
         }
         
         return {
             "overall_stats": overall_stats,
             "per_object_results": object_results,
             "all_episodes": all_results,
+            "metrics": aggregate_metrics,
+            "per_object_metrics": per_object_metrics,
         }
     
     def __enter__(self):

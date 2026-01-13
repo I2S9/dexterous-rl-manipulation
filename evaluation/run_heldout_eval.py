@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from experiments import CurriculumConfig
-from evaluation import HeldOutObjectSet, Evaluator, generate_training_objects
+from evaluation import HeldOutObjectSet, Evaluator, generate_training_objects, format_metrics_report
 from policies import RandomPolicy
 from envs import DexterousManipulationEnv
 
@@ -90,18 +90,19 @@ def main():
         seed=42
     )
     
-    # Step 8: Display results
+    # Step 8: Display results with metrics
     print("\n" + "=" * 60)
     print("Evaluation Results")
     print("=" * 60)
     
+    # Display formatted metrics report
+    metrics = results["metrics"]
+    report = format_metrics_report(metrics)
+    print(report)
+    
+    # Additional per-object summary
     overall = results["overall_stats"]
-    print(f"\nOverall Statistics:")
-    print(f"  Number of held-out objects: {overall['num_objects']}")
-    print(f"  Total evaluation episodes: {overall['total_episodes']}")
-    print(f"  Overall success rate: {overall['overall_success_rate']:.3f}")
-    print(f"  Mean reward: {overall['mean_reward']:.3f} ± {overall['std_reward']:.3f}")
-    print(f"  Mean steps per episode: {overall['mean_steps']:.1f}")
+    print(f"\nPer-Object Summary (first 5):")
     
     print(f"\nPer-Object Results (first 5):")
     for obj_idx in range(min(5, len(results["per_object_results"]))):
