@@ -28,6 +28,8 @@ class DexterousManipulationEnv(gym.Env):
         object_position: Optional[np.ndarray] = None,
         max_episode_steps: int = 200,
         render_mode: Optional[str] = None,
+        reward_type: str = "sparse",
+        reward_shaping: Optional[Any] = None,
     ):
         """
         Initialize the dexterous manipulation environment.
@@ -38,6 +40,8 @@ class DexterousManipulationEnv(gym.Env):
             object_position: Initial object position [x, y, z]. If None, random.
             max_episode_steps: Maximum steps per episode (default: 200)
             render_mode: Rendering mode, one of [None, "human", "rgb_array"]
+            reward_type: Type of reward ("sparse" or "dense")
+            reward_shaping: Optional reward shaping object (if None, created based on reward_type)
         """
         super().__init__()
         
@@ -46,6 +50,21 @@ class DexterousManipulationEnv(gym.Env):
         self.num_joints = num_fingers * joints_per_finger
         self.max_episode_steps = max_episode_steps
         self.render_mode = render_mode
+        self.reward_type = reward_type
+        
+        # Initialize reward shaping
+        if reward_shaping is not None:
+            self.reward_shaping = reward_shaping
+        else:
+            if reward_type == "dense":
+                from rewards import RewardShaping
+                self.reward_shaping = RewardShaping()
+            else:
+                from rewards import SparseReward
+                self.reward_shaping = SparseReward()
+        
+        # Store finger tips for reward computation
+        self.finger_tips = None
         
         # Action space: continuous control for each joint
         # Actions are in range [-1, 1], representing normalized joint velocities
@@ -80,6 +99,7 @@ class DexterousManipulationEnv(gym.Env):
         self.object_velocity = None
         self.contacts = None
         self.step_count = 0
+        self._last_reward_components = None
         
         # Workspace bounds (in meters)
         self.workspace_bounds = np.array([[-0.2, 0.2], [-0.2, 0.2], [0.0, 0.3]])
@@ -132,6 +152,10 @@ class DexterousManipulationEnv(gym.Env):
         # Reset step counter
         self.step_count = 0
         
+        # Update finger tips and reset reward shaping
+        self._update_contacts()
+        self.reward_shaping.reset()
+        
         observation = self._get_observation()
         info = self._get_info()
         
@@ -183,7 +207,7 @@ class DexterousManipulationEnv(gym.Env):
         # Check contacts (simplified: contact if fingers are close to object)
         self._update_contacts()
         
-        # Compute reward
+        # Compute reward using reward shaping
         reward = self._compute_reward()
         
         # Check termination conditions
@@ -211,11 +235,17 @@ class DexterousManipulationEnv(gym.Env):
     
     def _get_info(self) -> Dict[str, Any]:
         """Get additional information about the current state."""
-        return {
+        info = {
             "step_count": self.step_count,
             "object_position": self.object_position.copy(),
             "num_contacts": int(np.sum(self.contacts > 0.5)),
         }
+        
+        # Add reward components if available
+        if self._last_reward_components is not None:
+            info["reward_components"] = self._last_reward_components.copy()
+        
+        return info
     
     def _update_contacts(self):
         """
@@ -237,6 +267,7 @@ class DexterousManipulationEnv(gym.Env):
             finger_tips.append(finger_tip)
         
         finger_tips = np.array(finger_tips)
+        self.finger_tips = finger_tips
         
         # Check distance to object
         distances = np.linalg.norm(finger_tips - self.object_position, axis=1)
@@ -244,18 +275,23 @@ class DexterousManipulationEnv(gym.Env):
     
     def _compute_reward(self) -> float:
         """
-        Compute reward for current state.
+        Compute reward for current state using reward shaping.
         
-        For now, returns a simple sparse reward structure.
-        Will be extended in later phases with reward shaping.
+        Uses either sparse or dense reward formulation based on configuration.
         """
-        # Sparse reward: success if object is grasped (multiple contacts)
-        num_contacts = np.sum(self.contacts > 0.5)
-        if num_contacts >= 3:  # At least 3 fingers in contact
-            return 1.0
+        reward_dict = self.reward_shaping.compute(
+            joint_positions=self.joint_positions,
+            finger_tips=self.finger_tips,
+            object_position=self.object_position,
+            contacts=self.contacts,
+            num_fingers=self.num_fingers,
+            joints_per_finger=self.joints_per_finger,
+        )
         
-        # Small negative reward to encourage exploration
-        return -0.01
+        # Store reward components for info dict
+        self._last_reward_components = reward_dict
+        
+        return reward_dict["total"]
     
     def _check_termination(self) -> bool:
         """Check if episode should terminate (task completed)."""
