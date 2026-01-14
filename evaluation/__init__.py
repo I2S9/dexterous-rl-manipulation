@@ -11,6 +11,16 @@ from evaluation.robustness_tests import (
     NoisyDynamicsWrapper,
     CombinedNoiseWrapper,
 )
+from evaluation.failure_taxonomy import (
+    FailureMode,
+    FailureClassifier,
+    FAILURE_MODE_DEFINITIONS,
+)
+from evaluation.failure_analysis import (
+    print_failure_taxonomy,
+    print_failure_statistics,
+    analyze_failure_modes,
+)
 
 __all__ = [
     "HeldOutObjectSet", 
@@ -24,4 +34,10 @@ __all__ = [
     "NoisyObservationWrapper",
     "NoisyDynamicsWrapper",
     "CombinedNoiseWrapper",
+    "FailureMode",
+    "FailureClassifier",
+    "FAILURE_MODE_DEFINITIONS",
+    "print_failure_taxonomy",
+    "print_failure_statistics",
+    "analyze_failure_modes",
 ]
