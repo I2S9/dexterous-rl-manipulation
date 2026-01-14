@@ -36,6 +36,14 @@ from evaluation.seed_variance import (
     plot_seed_variance,
     print_variance_report,
 )
+from evaluation.component_ablation import (
+    AblationConfig,
+    TrainingResults,
+    train_with_config,
+    run_component_ablation,
+    compute_ablation_statistics,
+    print_ablation_report,
+)
 
 __all__ = [
     "HeldOutObjectSet", 
@@ -67,4 +75,10 @@ __all__ = [
     "analyze_seed_variance",
     "plot_seed_variance",
     "print_variance_report",
+    "AblationConfig",
+    "TrainingResults",
+    "train_with_config",
+    "run_component_ablation",
+    "compute_ablation_statistics",
+    "print_ablation_report",
 ]
