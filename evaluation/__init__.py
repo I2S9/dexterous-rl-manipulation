@@ -30,6 +30,12 @@ from evaluation.failure_statistics import (
     plot_failure_correlations,
     generate_failure_report,
 )
+from evaluation.seed_variance import (
+    SeedVarianceAnalyzer,
+    analyze_seed_variance,
+    plot_seed_variance,
+    print_variance_report,
+)
 
 __all__ = [
     "HeldOutObjectSet", 
@@ -57,4 +63,8 @@ __all__ = [
     "plot_failure_distribution",
     "plot_failure_correlations",
     "generate_failure_report",
+    "SeedVarianceAnalyzer",
+    "analyze_seed_variance",
+    "plot_seed_variance",
+    "print_variance_report",
 ]
